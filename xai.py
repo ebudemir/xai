@@ -8,11 +8,9 @@ import pandas as pd
 from datetime import timedelta
 import argparse
 from tqdm import tqdm
-import matplotlib
 import numpy as np
 import os.path as path
-import doe_tiff as dt
-from osgeo import gdal
+from osgeo import gdal, gdal_array
 from osgeo.gdalconst import *
 
 import tensorflow as tf
@@ -91,7 +89,7 @@ if __name__ == '__main__':
         raise FileNotFoundError
     try:
         assert path.isfile(image_name), 'Image file {}: is not a file'.format(model_file)
-        img_b = dt.io.read_gdal_file(image_name)
+        img_b = gdal_array.LoadFile(image_name)
         max_channels = img_b.shape[2]
     except:
         print("Image file not found or erroneous", image_name)
@@ -99,12 +97,6 @@ if __name__ == '__main__':
     weights_exist = False
     # Read model file
     print('[INFO] Loading model from file...')
-
-    # Define distribution strategy
-    # strategy = tf.distribute.MirroredStrategy()
-
-    # construct model under distribution strategy scope
-    # with strategy.scope():
 
     model3 = tf.keras.models.load_model(model_file)
     model3.summary()
@@ -131,8 +123,6 @@ if __name__ == '__main__':
     for i in range(0, img_b_scaled.shape[2]):
         print("band (", i, ") min:", img_b_scaled[:, :, i].min())
         print("band (", i, ") max:", img_b_scaled[:, :, i].max())
-    img_b_scaled = dt.frame_image(img_b_scaled, PADDING)
-    sc = dt.GeoTiffConvolution(img_b_scaled, kernel_size, kernel_size)
 
     IMAGE_DIMS = (kernel_size, kernel_size, num_channels)
     BATCH_DIMS = (None, kernel_size, kernel_size, num_channels)
@@ -145,12 +135,13 @@ if __name__ == '__main__':
     print("imgx", range(img_x))
     print("imgy", range(img_y))
     strategy = tf.distribute.MirroredStrategy()
+    padded_data = np.pad(img_b, (PADDING,), 'edge')
     # construct model under distribution strategy scope
     with strategy.scope():
         for i in tqdm(range(img_x), desc="Predicting...", ascii=False, ncols=75):
             # for i in tqdm(range(1), desc="Predicting...", ascii=False, ncols=75):
             for j in range(img_y):
-                image = sc.apply_mask(i + PADDING, j + PADDING)
+                image = padded_data[i:i + kernel_size, j:j + kernel_size]
                 data.append(image)
                 xx.append(i)
                 yy.append(j)
